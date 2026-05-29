@@ -2,81 +2,106 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import io
+from matplotlib.lines import Line2D
 
-# --- CSS for styling ---
-st.markdown("""
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #0d0f14;
-    --surface: #151820;
-    --surface2: #1c2030;
-    --border: rgba(255,255,255,0.07);
-    --border2: rgba(255,255,255,0.13);
-    --text: #eef0f7;
-    --muted: #7a8099;
-    --green: #22d07a;
-    --green-dim: rgba(34,208,122,0.12);
-    --amber: #f5a623;
-    --amber-dim: rgba(245,166,35,0.12);
-    --red: #f04c5a;
-    --red-dim: rgba(240,76,90,0.12);
-    --blue: #4b9eff;
-    --blue-dim: rgba(75,158,255,0.1);
-    --accent: #7c6dfa;
-    --accent-dim: rgba(124,109,250,0.12);
-    --mono: 'Space Mono', monospace;
-    --sans: 'DM Sans', sans-serif;
-    --radius: 12px;
-    --radius-sm: 8px;
-  }
-  .stApp { background: var(--bg); color: var(--text); font-family: var(--sans); }
-  .stMarkdown, p, h1, h2, h3 { color: var(--text); }
-  .stButton > button {
-    background-color: var(--surface);
-    border: 1px solid var(--border2);
-    color: var(--text);
-    border-radius: 100px;
-  }
-  .readiness-card, .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 24px;
-    margin-bottom: 20px;
-  }
-</style>
-""", unsafe_allow_html=True)
+# Configuración de la página
+st.set_page_config(page_title='Dashboard de Readiness & rMSSD', layout='wide')
 
-# --- Data ---
-athletes = [
-    {'id': 1, 'name': 'Carlos R.', 'initials': 'CR', 'color': '#7c6dfa', 'sport': 'Ciclismo'},
-    {'id': 2, 'name': 'Marta G.', 'initials': 'MG', 'color': '#22d07a', 'sport': 'Triatlón'},
-    {'id': 3, 'name': 'Diego L.', 'initials': 'DL', 'color': '#f5a623', 'sport': 'Running'},
-]
+st.title('📈 Dashboard de Rendimiento: Evolución rMSSD y Readiness')
 
-athlete_data = {
-    1: {'rmssd': [60, 58, 60, 52, 68, 59, 61, 72], 'sleep': [7.2, 6.8, 7.5, 6.1, 7.8, 7.0, 7.3, 7.0], 'wellness': [4.0, 3.5, 4.25, 2.75, 4.5, 3.75, 3.25, 4.0], 'hrToday': 72, 'sleepTonight': {'deep': 1.4, 'rem': 1.8, 'light': 3.1}, 'wellnessToday': {'sueno': 3, 'dolor': 4, 'estres': 3, 'fatiga': 3}},
-    2: {'rmssd': [70, 72, 68, 75, 74, 71, 73, 80], 'sleep': [7.8, 8.0, 7.5, 7.9, 8.2, 7.7, 8.1, 7.9], 'wellness': [4.5, 4.25, 4.0, 4.75, 4.5, 4.25, 4.5, 4.6], 'hrToday': 80, 'sleepTonight': {'deep': 2.1, 'rem': 2.0, 'light': 3.0}, 'wellnessToday': {'sueno': 5, 'dolor': 5, 'estres': 4, 'fatiga': 5}},
-    3: {'rmssd': [55, 52, 50, 48, 56, 54, 53, 42], 'sleep': [6.5, 6.0, 6.8, 5.5, 6.9, 6.2, 6.4, 6.0], 'wellness': [3.25, 3.0, 3.5, 2.5, 3.75, 3.25, 3.0, 3.1], 'hrToday': 42, 'sleepTonight': {'deep': 0.9, 'rem': 1.3, 'light': 3.8}, 'wellnessToday': {'sueno': 2, 'dolor': 2, 'estres': 2, 'fatiga': 2}},
+# 1. Función para generar datos (usando tu lógica de simulación)
+def generar_datos():
+    fechas = pd.date_range(end=pd.Timestamp.now(), periods=30)
+    np.random.seed(42)
+    rmssd = np.random.normal(loc=60, scale=8, size=30).round(1)
+    
+    df = pd.DataFrame({'Fecha': fechas, 'rMSSD': rmssd})
+    df['Baseline'] = df['rMSSD'].rolling(window=7, min_periods=1).mean().round(1)
+    std_sim = df['rMSSD'].std()
+    
+    colores = []
+    for idx, row in df.iterrows():
+        desvio = row['rMSSD'] - row['Baseline']
+        if desvio > -0.5 * std_sim:
+            colores.append('#27ae60') # Verde
+        elif desvio > -1.5 * std_sim:
+            colores.append('#f1c40f') # Amarillo
+        else:
+            colores.append('#e74c3c') # Rojo
+    df['Color'] = colores
+    return df, std_sim
+
+df_sim, std_sim = generar_datos()
+
+# 2. Sidebar para filtros
+st.sidebar.header('Filtros')
+estados = st.sidebar.multiselect('Filtrar Estado:', ['Verde (Ready)', 'Amarillo (Precaución)', 'Rojo (Descanso)'], default=['Verde (Ready)', 'Amarillo (Precaución)', 'Rojo (Descanso)'])
+
+# Mapear la selección a los colores hexadecimales
+mapa_colores = {
+    'Verde (Ready)': '#27ae60',
+    'Amarillo (Precaución)': '#f1c40f',
+    'Rojo (Descanso)': '#e74c3c'
 }
+colores_filtrados = [mapa_colores[e] for e in estados]
 
-# --- Logic ---
-def calc_readiness(data):
-    hist_rmssd = data['rmssd'][:-1]
-    today_rmssd = data['rmssd'][-1]
-    baseline = np.mean(hist_rmssd) if hist_rmssd else today_rmssd
-    if today_rmssd >= baseline: return {'color': 'green', 'label': 'Carga alta'}
-    return {'color': 'amber', 'label': 'Carga moderada'}
+# Filtrar el dataframe según la selección del usuario
+df_filtrado = df_sim[df_sim['Color'].isin(colores_filtrados)]
 
-# --- UI ---
-st.title("AtletaOS Dashboard")
-athlete_name = st.selectbox("Seleccionar Atleta", [a['name'] for a in athletes])
-sel_id = next(a['id'] for a in athletes if a['name'] == athlete_name)
-data = athlete_data[sel_id]
+# 3. Métricas principales mejoradas con los colores del semáforo (Emojis y lógica clara)
+if not df_filtrado.empty:
+    last = df_filtrado.iloc[-1]
+    col1, col2, col3 = st.columns(3)
+    col1.metric('rMSSD Hoy', f"{last['rMSSD']} ms")
+    col2.metric('Baseline (7d)', f"{last['Baseline']} ms")
+    
+    # Lógica del semáforo exacta para el estado actual
+    if last['Color'] == '#27ae60':
+        estado_texto = "🟢 Verde (Ready)"
+    elif last['Color'] == '#f1c40f':
+        estado_texto = "🟡 Amarillo (Precaución)"
+    else:
+        estado_texto = "🔴 Rojo (Descanso)"
+        
+    col3.metric('Estado Actual', estado_texto)
 
-st.metric("HRV Hoy", f"{data['rmssd'][-1]} ms")
-st.line_chart(data['rmssd'])
-st.write("Datos listos para Streamlit Cloud.")
+st.divider()
+
+# 4. Gráfico Matplotlib optimizado (Como tu primera aplicación)
+if not df_filtrado.empty:
+    fig, ax = plt.subplots(figsize=(15, 6)) # Un poco más ancho para mejorar visualización
+    
+    # Sombreado de la zona de confort
+    ax.fill_between(df_filtrado['Fecha'], df_filtrado['Baseline'] - 0.5*std_sim, df_filtrado['Baseline'] + 0.5*std_sim, color='gray', alpha=0.1, label='Rango Normal')
+    
+    # Línea base intermitente
+    ax.plot(df_filtrado['Fecha'], df_filtrado['Baseline'], color='#e67e22', linestyle='--', linewidth=2, label='Línea Base (7d)')
+    
+    # Línea continua gris suave que une los puntos
+    ax.plot(df_filtrado['Fecha'], df_filtrado['rMSSD'], color='#bdc3c7', alpha=0.6, zorder=2)
+    
+    # Puntos con los colores del semáforo exactos
+    ax.scatter(df_filtrado['Fecha'], df_filtrado['rMSSD'], color=df_filtrado['Color'], s=120, edgecolors='black', linewidth=1, zorder=3)
+    
+    # Configuración de estética y rejilla limpia
+    ax.set_title("DASHBOARD INTEGRADO: Evolución rMSSD y Readiness", fontsize=16, fontweight='bold', pad=20)
+    ax.set_ylabel("rMSSD (ms)", fontsize=12)
+    ax.grid(True, linestyle=':', alpha=0.6)
+
+    # Leyenda personalizada idéntica a la otra app
+    legend_elements = [
+        Line2D([0], [0], color='#e67e22', linestyle='--', label='Línea Base'),
+        Line2D([0], [0], marker='o', color='w', label='Verde (Ready)', markerfacecolor='#27ae60', markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Amarillo (Precaución)', markerfacecolor='#f1c40f', markersize=10),
+        Line2D([0], [0], marker='o', color='w', label='Rojo (Descanso)', markerfacecolor='#e74c3c', markersize=10)
+    ]
+    ax.legend(handles=legend_elements, loc='upper left', frameon=True)
+    
+    plt.tight_layout()
+    st.pyplot(fig)
+else:
+    st.warning("Selecciona al menos un estado en los filtros laterales para mostrar los datos.")
+
+# 5. Tabla de datos
+st.subheader('Datos del periodo')
+st.dataframe(df_filtrado.sort_values('Fecha', ascending=False), use_container_width=True)

@@ -409,7 +409,6 @@ import sys
 print("¡Streamlit y pyngrok instalados!")
 
 
-!pip install -q pyngrok
 from pyngrok import ngrok
 import subprocess
 import os

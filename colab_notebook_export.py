@@ -405,7 +405,6 @@ files.download(filename)
 import sys
 
 # Instalamos Streamlit y pyngrok
-!{sys.executable} -m pip install streamlit pyngrok
 
 print("¡Streamlit y pyngrok instalados!")
 

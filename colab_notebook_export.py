@@ -41,7 +41,7 @@ def calcular_metricas_y_colores(df):
         sub_df['Desvio_Pct'] = desvios_pct
         lista_procesada.append(sub_df)
         
-    return pd.concat(lista_processed) if lista_procesada else df
+    return pd.concat(lista_procesada) if lista_procesada else df
 
 # 2. Función de datos simulados (Por si no se sube ningún archivo)
 @st.cache_data
@@ -68,7 +68,6 @@ def generar_datos_simulados():
 # ==========================================
 # GESTIÓN DE FUENTE DE DATOS (Simulados vs Reales)
 # ==========================================
-# Creamos la pestaña 3 primero en la interfaz conceptual para la carga
 tab1, tab2, tab3 = st.tabs(["👤 Análisis Individual", "👥 Vista de Equipo (Comparador)", "📂 Subir Datos Wearables"])
 
 with tab3:
@@ -155,4 +154,34 @@ with tab2:
     
     hoy_atletas = df_todos.groupby('Atleta').last().reset_index()
     
-    fig_
+    fig_comp, ax_comp = plt.subplots(figsize=(12, 4))
+    barras = ax_comp.barh(hoy_atletas['Atleta'], hoy_atletas['Desvio_Pct'], color=hoy_atletas['Color'], edgecolor='black', height=0.5)
+    ax_comp.axvline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.7)
+    
+    for barra in barras:
+        ancho = barra.get_width()
+        pos_x = ancho + 0.5 if ancho >= 0 else ancho - 3.5
+        ax_comp.text(pos_x, barra.get_y() + barra.get_height()/2, f"{ancho:+.1f}%", 
+                     va='center', ha='left' if ancho >= 0 else 'right', fontweight='bold', fontsize=11)
+    
+    ax_comp.set_xlim(-40, 20)
+    ax_comp.set_xlabel("Porcentaje de Desviación respecto a la Línea Base (%)")
+    ax_comp.set_title("ESTADO DEL VESTUARIO: % VARIACIÓN rMSSD DIARIO", fontsize=12, fontweight='bold', pad=10)
+    ax_comp.grid(True, axis='x', linestyle=':', alpha=0.5)
+    ax_comp.invert_yaxis()
+    st.pyplot(fig_comp)
+    
+    st.markdown("### 📋 Recomendación de Estado de Carga")
+    if not datos_son_reales:
+        c1, c2, c3 = st.columns(3)
+        with c1: st.info("**Pau**\n\n🟢 **Ready** (+9.2%)\n\nApto para tareas de alta intensidad.")
+        with c2: st.warning("**Rafa**\n\n🟡 **Precaución** (-11.4%)\n\nFatiga moderada. Regular volumen.")
+        with c3: st.error("**Nordin**\n\n🔴 **Descanso** (-28.1%)\n\nCaída crítica. Riesgo alto. Sesión de recuperación.")
+    else:
+        for idx, row in hoy_atletas.iterrows():
+            if row['Color'] == '#27ae60':
+                st.success(f"**{row['Atleta']}** -> 🟢 **Ready** ({row['Desvio_Pct']:+.1f}%): Óptimo estado. Ritmo normal de entrenamiento.")
+            elif row['Color'] == '#f1c40f':
+                st.warning(f"**{row['Atleta']}** -> 🟡 **Precaución** ({row['Desvio_Pct']:+.1f}%): Fatiga moderada detectada. Controlar cargas de volumen.")
+            else:
+                st.error(f"**{row['Atleta']}** -> 🔴 **Descanso** ({row['Desvio_Pct']:+.1f}%): Caída severa de variabilidad. Priorizar recuperación activa.")

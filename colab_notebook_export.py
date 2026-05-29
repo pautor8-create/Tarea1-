@@ -9,36 +9,23 @@ st.set_page_config(page_title='Dashboard de Carga Interna', layout='wide')
 
 st.title('⚽ Dashboard de Rendimiento: Monitorización de Carga Interna')
 
-# 1. Función de datos simulados optimizada para los 3 atletas
-@st.cache_data
-def generar_datos_atletas():
-    np.random.seed(44)
-    fechas = pd.date_range(end=pd.Timestamp.now(), periods=30)
-    atletas = ["Pau", "Rafa", "Nordin"]
-    lista_df = []
+# 1. Función para procesar y calcular semáforos de cualquier DataFrame (Simulado o Real)
+def calcular_metricas_y_colores(df):
+    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    df = df.sort_values('Fecha')
     
-    for atleta in atletas:
-        if atleta == "Pau":
-            media, desviacion = 65, 6  # Pau hoy estará recuperado (Verde)
-        elif atleta == "Rafa":
-            media, desviacion = 70, 8  # Rafa hoy estará en el límite (Amarillo)
-        else:
-            media, desviacion = 64, 7  # Nordin hoy tendrá una caída fuerte (Rojo)
+    lista_procesada = []
+    for atleta, sub_df in df.groupby('Atleta'):
+        sub_df = sub_df.copy()
+        # Calcular Línea Base de 7 días
+        sub_df['Baseline'] = sub_df['rMSSD'].rolling(window=7, min_periods=1).mean().round(1)
+        std_atleta = sub_df['rMSSD'].std()
+        if pd.isna(std_atleta) or std_atleta == 0:
+            std_atleta = 5.0 # Valor por defecto si hay pocos datos
             
-        rmssd = np.random.normal(loc=media, scale=desviacion, size=30).round(1)
-        
-        # Forzamos los datos del último día (Hoy) para clavar el ejemplo analítico
-        if atleta == "Pau": rmssd[-1] = 71.0       
-        elif atleta == "Rafa": rmssd[-1] = 62.0     
-        elif atleta == "Nordin": rmssd[-1] = 46.0   
-            
-        df = pd.DataFrame({'Fecha': fechas, 'Atleta': atleta, 'rMSSD': rmssd})
-        df['Baseline'] = df['rMSSD'].rolling(window=7, min_periods=1).mean().round(1)
-        std_atleta = df['rMSSD'].std()
-        
         colores = []
         desvios_pct = []
-        for idx, row in df.iterrows():
+        for idx, row in sub_df.iterrows():
             desvio_absoluto = row['rMSSD'] - row['Baseline']
             pct = (desvio_absoluto / row['Baseline']) * 100
             desvios_pct.append(round(pct, 1))
@@ -50,16 +37,74 @@ def generar_datos_atletas():
             else:
                 colores.append('#e74c3c') # Rojo
                 
-        df['Color'] = colores
-        df['Desvio_Pct'] = desvios_pct
-        lista_df.append(df)
+        sub_df['Color'] = colores
+        sub_df['Desvio_Pct'] = desvios_pct
+        lista_procesada.append(sub_df)
         
+    return pd.concat(lista_processed) if lista_procesada else df
+
+# 2. Función de datos simulados (Por si no se sube ningún archivo)
+@st.cache_data
+def generar_datos_simulados():
+    np.random.seed(44)
+    fechas = pd.date_range(end=pd.Timestamp.now(), periods=30)
+    atletas = ["Pau", "Rafa", "Nordin"]
+    lista_df = []
+    
+    for atleta in atletas:
+        if atleta == "Pau": media, desviacion = 65, 6
+        elif atleta == "Rafa": media, desviacion = 70, 8
+        else: media, desviacion = 64, 7
+            
+        rmssd = np.random.normal(loc=media, scale=desviacion, size=30).round(1)
+        if atleta == "Pau": rmssd[-1] = 71.0       
+        elif atleta == "Rafa": rmssd[-1] = 62.0     
+        elif atleta == "Nordin": rmssd[-1] = 46.0   
+            
+        df = pd.DataFrame({'Fecha': fechas, 'Atleta': atleta, 'rMSSD': rmssd})
+        lista_df.append(df)
     return pd.concat(lista_df)
 
-df_todos = generar_datos_atletas()
+# ==========================================
+# GESTIÓN DE FUENTE DE DATOS (Simulados vs Reales)
+# ==========================================
+# Creamos la pestaña 3 primero en la interfaz conceptual para la carga
+tab1, tab2, tab3 = st.tabs(["👤 Análisis Individual", "👥 Vista de Equipo (Comparador)", "📂 Subir Datos Wearables"])
 
-# CREACIÓN DE PESTAÑAS
-tab1, tab2 = st.tabs(["👤 Análisis Individual", "👥 Vista de Equipo (Comparador)"])
+with tab3:
+    st.subheader("📂 Importación Manual de Datos (.csv o .xlsx)")
+    st.markdown("Arrastra aquí las exportaciones de tus aplicaciones (**Amazfit, Oura, Mi Fit, HRV4Training**, etc.).")
+    
+    archivo_subido = st.file_uploader("Selecciona el archivo de tu ordenador:", type=['csv', 'xlsx'])
+    
+    if archivo_subido is not None:
+        try:
+            if archivo_subido.name.endswith('.csv'):
+                df_real = pd.read_csv(archivo_subido)
+            else:
+                df_real = pd.read_excel(archivo_subido)
+                
+            # Verificar columnas mínimas obligatorias
+            columnas_requeridas = {'Fecha', 'Atleta', 'rMSSD'}
+            if columnas_requeridas.issubset(df_real.columns):
+                st.success(f"¡Archivo '{archivo_subido.name}' cargado con éxito! El dashboard ahora usa tus datos reales.")
+                df_base = df_real
+                datos_son_reales = True
+            else:
+                st.error(f"Error: El archivo debe contener obligatoriamente las columnas: **Fecha, Atleta, rMSSD**. Columnas encontradas: {list(df_real.columns)}")
+                df_base = generar_datos_simulados()
+                datos_son_reales = False
+        except Exception as e:
+            st.error(f"No se pudo procesar el archivo: {e}")
+            df_base = generar_datos_simulados()
+            datos_son_reales = False
+    else:
+        st.info("💡 Actualmente mostrando **Datos de Ejemplo (Simulados)**. Sube un archivo en esta pestaña para ver métricas reales.")
+        df_base = generar_datos_simulados()
+        datos_son_reales = False
+
+# Procesar el dataframe elegido con la lógica de carga y semáforos
+df_todos = calcular_metricas_y_colores(df_base)
 
 # ==========================================
 # PESTAÑA 1: ANÁLISIS INDIVIDUAL
@@ -72,7 +117,6 @@ with tab1:
     std_sim = df_atleta['rMSSD'].std()
     last = df_atleta.iloc[-1]
     
-    # Métricas superiores
     col1, col2, col3 = st.columns(3)
     col1.metric(f"rMSSD Hoy ({atleta_seleccionado})", f"{last['rMSSD']} ms")
     col2.metric("Línea Base (7d)", f"{last['Baseline']} ms")
@@ -84,7 +128,6 @@ with tab1:
     
     st.divider()
     
-    # Gráfica temporal limpia sin bucles antiguos
     fig, ax = plt.subplots(figsize=(15, 5))
     ax.fill_between(df_atleta['Fecha'], df_atleta['Baseline'] - 0.5*std_sim, df_atleta['Baseline'] + 0.5*std_sim, color='gray', alpha=0.1, label='Rango Normal')
     ax.plot(df_atleta['Fecha'], df_atleta['Baseline'], color='#e67e22', linestyle='--', linewidth=2, label='Línea Base (7d)')
@@ -112,25 +155,4 @@ with tab2:
     
     hoy_atletas = df_todos.groupby('Atleta').last().reset_index()
     
-    fig_comp, ax_comp = plt.subplots(figsize=(12, 4))
-    barras = ax_comp.barh(hoy_atletas['Atleta'], hoy_atletas['Desvio_Pct'], color=hoy_atletas['Color'], edgecolor='black', height=0.5)
-    ax_comp.axvline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.7)
-    
-    for barra in barras:
-        ancho = barra.get_width()
-        pos_x = ancho + 0.5 if ancho >= 0 else ancho - 3.5
-        ax_comp.text(pos_x, barra.get_y() + barra.get_height()/2, f"{ancho:+.1f}%", 
-                     va='center', ha='left' if ancho >= 0 else 'right', fontweight='bold', fontsize=11)
-    
-    ax_comp.set_xlim(-40, 20)
-    ax_comp.set_xlabel("Porcentaje de Desviación respecto a la Línea Base (%)")
-    ax_comp.set_title("ESTADO DEL VESTUARIO: % VARIACIÓN rMSSD DIARIO", fontsize=12, fontweight='bold', pad=10)
-    ax_comp.grid(True, axis='x', linestyle=':', alpha=0.5)
-    ax_comp.invert_yaxis()
-    st.pyplot(fig_comp)
-    
-    st.markdown("### 📋 Recomendación de Estado de Carga")
-    c1, c2, c3 = st.columns(3)
-    with c1: st.info("**Pau**\n\n🟢 **Ready** (+9.2%)\n\nApto para tareas de alta intensidad.")
-    with c2: st.warning("**Rafa**\n\n🟡 **Precaución** (-11.4%)\n\nFatiga moderada. Regular volumen.")
-    with c3: st.error("**Nordin**\n\n🔴 **Descanso** (-28.1%)\n\nCaída crítica. Riesgo alto. Sesión de recuperación.")
+    fig_
